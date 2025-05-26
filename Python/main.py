@@ -1,23 +1,37 @@
-import socket
+import scapy.all as scapy
 import sys
-IP_ADDRESS = "0.0.0.0"
+import help
+
 def main():
-    for i in sys.argv:
-        if isIP(i):
-            IP_ADDRESS = i
-            print("valid")
-def isIP(ip):
-    try:
-        parts = ip.split(".")
-        if len(parts) != 4:
-            return False
-        for i in parts:
-            octet = int(i)
-            if (octet > 255 or octet < 0):
-                return False
-        return True
-    except:
-        return False
+    if(help.is_root):
+        sys.exit("Try again with SUDO or root priviliges e.g. (sudo python3 main.py 10.10.10.0/24)")
+    
+    ip_address =  "0.0.0.0/24"
+    for arg in sys.argv:
+        if(help.validateIPRange(arg)):
+            ip_address = arg
+            break
+        else:
+            continue
+    arpScanner(ip_address)
+
+    
+
+def arpScanner(target):
+    arp = scapy.ARP(pdst=target)
+    ether = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
+    packet = ether/arp
+
+    res = scapy.srp(packet, timeout=1)[0]
+    clients = []
+    for sent, recived in res:
+        clients.append({'ip': recived.psrc, 'mac': recived.hwsrc})
+    
+    print("Available devices in the network: ")
+    print("IP" + " "*18+"MAC")
+    for client in clients:
+        print("{:16}      {}".format(client['ip'], client['mac']))
+
     
 if __name__ == "__main__":
     main()
