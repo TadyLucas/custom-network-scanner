@@ -1,12 +1,15 @@
 import scapy.all as scapy
 import re
 import socket
-import time
+import ipaddress
+import logging
+import tqdm
 
 class NetScanner:
     def __init__(self, ip_range):
         self.ip_range = ip_range
         self.clients = []
+        self.timeout = 1
 
     def arpScan(self):
         scapy.conf.verb = 0
@@ -15,20 +18,28 @@ class NetScanner:
         packet = ether/arp
 
         res = scapy.srp(packet, timeout=1)[0]
-        clients = []
         for sent, recived in res:
-            self.clients.append(ip=recived.psrc, mac=recived.hwsrc)
+            self.clients.append({'ip':recived.psrc, 'mac':recived.hwsrc})
         self.printProcess(head="ARP scan")
         
     def pingScan(self):
+        logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
         head = "Ping scan"
-        clients = []
         scapy.conf.verb = 0
         if "/" in self.ip_range:
-            idk = 0
+            try:
+                ips = list(ipaddress.IPv4Network(self.ip_range, strict=False))
+                for ip in tqdm.tqdm(ips, desc="Pinging"):
+                    pkt = scapy.IP(dst=str(ip))/scapy.ICMP()
+                    reply = scapy.sr1(pkt, timeout=self.timeout, verbose=0)
+                    if reply:
+                        self.addToClients(ip=str(ip))
+                self.printProcess(head=head)
+            except ValueError as e:
+                self.printProcess(error=f"Invalid subnet {e}", head=head)
         else:
             pkt = scapy.IP(dst=self.ip_range)/scapy.ICMP()
-            reply = scapy.sr1(pkt, timeout=1)
+            reply = scapy.sr1(pkt, timeout=self.timeout)
             if reply:
                 self.addToClients(ip=self.ip_range)
                 self.printProcess(head=head)
@@ -37,7 +48,6 @@ class NetScanner:
 
     # def synScan(self):
     #     return True
-    
     def printProcess(self, head="", error=""):
         print(f"Results of {head}: \n")
        
