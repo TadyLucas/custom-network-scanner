@@ -44,3 +44,7 @@ Map MAC addresses to vendors (use OUI database).
     Can help identify device types (phones, printers, etc.).
 
     Use a local file or API like macvendors.com.
+
+```bash
+sudo $(which python3) main.py -ip 10.0.1.0/24
+```

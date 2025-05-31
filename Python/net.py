@@ -4,26 +4,41 @@ import socket
 import ipaddress
 import logging
 import tqdm
+from manuf import manuf
+from tabulate import tabulate
 
 class NetScanner:
-    def __init__(self, ip_range):
+    def __init__(self, ip_range, resolveMac):
         self.ip_range = ip_range
         self.clients = []
         self.timeout = 1
+        self.resolveMac = resolveMac
 
     def arpScan(self):
+        vendor = ""
+
         scapy.conf.verb = 0
         arp = scapy.ARP(pdst=self.ip_range)
         ether = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
         packet = ether/arp
+        head="ARP scan"
 
         res = scapy.srp(packet, timeout=1)[0]
         for sent, recived in res:
-            self.clients.append({'ip':recived.psrc, 'mac':recived.hwsrc})
-        self.printProcess(head="ARP scan")
+            if self.resolveMac:
+                parser = manuf.MacParser()
+                vendor = parser.get_manuf(recived.hwsrc)
+                self.clients.append({'ip':recived.psrc, 'mac':recived.hwsrc, 'vendor': vendor})
+            else:
+                self.clients.append({'ip':recived.psrc, 'mac':recived.hwsrc})
         
+        if self.resolveMac:
+            self.printProcess(head=head, columns=['ip', 'mac', 'vendor'])
+        else:
+            self.printProcess(head=head, columns=['ip', 'mac'])
+
     def pingScan(self):
-        logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
+        logging.getLogger("scapy. runtime").setLevel(logging.ERROR)
         head = "Ping scan"
         scapy.conf.verb = 0
         if "/" in self.ip_range:
@@ -48,17 +63,25 @@ class NetScanner:
 
     # def synScan(self):
     #     return True
-    def printProcess(self, head="", error=""):
-        print(f"Results of {head}: \n")
-       
+    def printProcess(self, head="", error="", columns=['ip', 'mac']):
+        print(f"\nResults of {head}:\n")
+
         if error:
             print(f"Error: {error}")
-        else:
-            print("IP" + " "*18+"MAC")
-            print("-----------------------------------")
-            for client in self.clients:
-                print("{:16}      {}".format(client['ip'], client['mac']))
-    
+            return
+        
+         # Dynamic header names (title-case)
+        headers = [col.replace("_", " ").title() for col in columns]
+
+        # Build the table rows
+        table_data = []
+        for client in self.clients:
+            row = [client.get(col, "N/A") for col in columns]
+            table_data.append(row)
+
+        print(tabulate(table_data, headers=headers, tablefmt="fancy_grid"))
+
+        
     def validateIPRange(self):
         regex = r"^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}" \
                 r"(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])" \
