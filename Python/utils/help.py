@@ -1,7 +1,6 @@
 from os import getuid
 
-    
 
-def is_root():
+def isRoot():
     return getuid() == 0
 
