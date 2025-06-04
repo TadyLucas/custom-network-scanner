@@ -6,16 +6,20 @@ import logging
 import tqdm
 from manuf import manuf
 from tabulate import tabulate
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class NetScanner:
-    def __init__(self, ip_range, resolveMac):
+    def __init__(self, ip_range, resolveMac, port):
         self.ip_range = ip_range
-        self.clients = []
+        self.results = []
         self.timeout = 1
         self.resolveMac = resolveMac
+        self.port = port
 
+    # Host scan
     def arpScan(self):
         vendor = ""
+        logging.getLogger("scapy. runtime").setLevel(logging.ERROR)
 
         scapy.conf.verb = 0
         arp = scapy.ARP(pdst=self.ip_range)
@@ -28,41 +32,59 @@ class NetScanner:
             if self.resolveMac:
                 parser = manuf.MacParser()
                 vendor = parser.get_manuf(recived.hwsrc)
-                self.clients.append({'ip':recived.psrc, 'mac':recived.hwsrc, 'vendor': vendor})
+                self.addToResults(ip=recived.psrc, mac=recived.hwsrc, vendor=vendor)
             else:
-                self.clients.append({'ip':recived.psrc, 'mac':recived.hwsrc})
+                self.addToResults(ip=recived.psrc, mac=recived.hwsrc)
         
         if self.resolveMac:
             self.printProcess(head=head, columns=['ip', 'mac', 'vendor'])
         else:
             self.printProcess(head=head, columns=['ip', 'mac'])
-
+    
+    def pingHost(self, ip, timeout):
+        pkt = scapy.IP(dst=str(ip))/scapy.ICMP()
+        reply = scapy.sr1(pkt, timeout=timeout, verbose=0)
+        return str(ip) if reply else None
+    
     def pingScan(self):
         logging.getLogger("scapy. runtime").setLevel(logging.ERROR)
         head = "Ping scan"
         scapy.conf.verb = 0
+
         if "/" in self.ip_range:
             try:
                 ips = list(ipaddress.IPv4Network(self.ip_range, strict=False))
-                for ip in tqdm.tqdm(ips, desc="Pinging"):
-                    pkt = scapy.IP(dst=str(ip))/scapy.ICMP()
-                    reply = scapy.sr1(pkt, timeout=self.timeout, verbose=0)
-                    if reply:
-                        self.addToClients(ip=str(ip))
-                self.printProcess(head=head)
+                with ThreadPoolExecutor(max_workers=100) as e:
+                    futures = {e.submit(self.pingHost, ip, self.timeout): ip for ip in ips}
+                    for future in tqdm.tqdm(as_completed(futures), total=len(ips), desc="Pinging"):
+                        ip = future.result()
+                        if ip:
+                            self.addToResults(ip=ip)
+                self.printProcess(head=head, columns=['ip'])
             except ValueError as e:
                 self.printProcess(error=f"Invalid subnet {e}", head=head)
         else:
             pkt = scapy.IP(dst=self.ip_range)/scapy.ICMP()
             reply = scapy.sr1(pkt, timeout=self.timeout)
             if reply:
-                self.addToClients(ip=self.ip_range)
-                self.printProcess(head=head)
+                self.addToResults(ip=self.ip_range)
+                self.printProcess(head=head, columns=['ip'])
             else:
                 self.printProcess(error="Host is not alive", head=head)
 
     # def synScan(self):
     #     return True
+    # Port scan
+    def defaultPortScan(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(2)
+            s.connect((self.ip_range, int(self.port)))
+            self.addToResults(port=self.port, mac="OPEN")
+            s.close()
+        except:
+           self.addToResults(port=self.port, state="CLOSED|")
+        self.printProcess(head="Default port scan", columns=["port", "state"])
     def printProcess(self, head="", error="", columns=['ip', 'mac']):
         print(f"\nResults of {head}:\n")
 
@@ -75,12 +97,11 @@ class NetScanner:
 
         # Build the table rows
         table_data = []
-        for client in self.clients:
+        for client in self.results:
             row = [client.get(col, "N/A") for col in columns]
             table_data.append(row)
 
         print(tabulate(table_data, headers=headers, tablefmt="fancy_grid"))
-
         
     def validateIPRange(self):
         regex = r"^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}" \
@@ -91,8 +112,9 @@ class NetScanner:
             return True
         else:
             return False
-    def addToClients(self, ip="0.0.0.0", mac="None"):
-        self.clients.append({'ip':ip, 'mac':mac})
+    
+    def addToResults(self, **kwargs):
+        self.results.append(kwargs)
     @staticmethod
     def getLocalAddress():
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # Create UDP socket AF_NET = IPv4, SOCK_DGRAM = UDP - SOCK_STREAM = TCP
