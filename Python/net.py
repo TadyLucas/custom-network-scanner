@@ -76,15 +76,29 @@ class NetScanner:
     #     return True
     # Port scan
     def defaultPortScan(self):
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(2)
-            s.connect((self.ip_range, int(self.port)))
-            self.addToResults(port=self.port, mac="OPEN")
-            s.close()
-        except:
-           self.addToResults(port=self.port, state="CLOSED|")
+        self.formatPorts()
+        for p in list(self.port):
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(2)
+                s.connect((self.ip_range, int(p)))
+                self.addToResults(port=p, state="OPEN")
+                s.close()
+            except:
+                self.addToResults(port=p, state="CLOSED|FILTERED")
         self.printProcess(head="Default port scan", columns=["port", "state"])
+    def formatPorts(self):
+        tmp = []
+        if "," in self.port:
+            tmp = self.port.split(",")
+            self.port = tmp
+        elif "-" in self.port:
+            no = self.port.split("-")
+            self.port = []
+            for n in range(int(no[0]), int(no[1]) + 1):
+                self.port.append(n)
+        
+
     def printProcess(self, head="", error="", columns=['ip', 'mac']):
         print(f"\nResults of {head}:\n")
 
